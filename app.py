@@ -395,3 +395,12 @@ if forecast_data:
             st.dataframe(df_daily, width='stretch', height=300)
 else:
     st.error("Errore nel recupero delle previsioni estese da Open-Meteo.")
+
+st.divider()
+st.markdown(
+    "<p style='text-align: center; opacity: 0.7;'>"
+    "Icone meteo: © <a href='https://www.magnific.com' target='_blank' "
+    "rel='noopener noreferrer'>www.magnific.com</a>"
+    "</p>",
+    unsafe_allow_html=True
+)
