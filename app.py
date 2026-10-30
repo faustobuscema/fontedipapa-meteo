@@ -4,10 +4,12 @@ import requests
 import openmeteo_requests
 import requests_cache
 from retry_requests import retry
-from metar import Metar
 from datetime import datetime
 import os
 import base64
+import importlib
+import urllib.request
+import re
 
 # ---------------------------------------------------------
 # Configurazione Pagina Streamlit
@@ -140,16 +142,20 @@ def get_weather_aero_data(icao_code):
         if res_m.status_code == 200 and res_m.text.strip():
             raw_m = res_m.text.strip()
             result["metar_raw"] = raw_m
-            obs = Metar.Metar(raw_m)
-            result["metar_decoded"] = {
-                "time": obs.time.strftime("%d/%m/%Y %H:%M UTC") if obs.time else "N/D",
-                "temperature": f"{obs.temp.value()} °C" if obs.temp else "N/D",
-                "dewpoint": f"{obs.dewpt.value()} °C" if obs.dewpt else "N/D",
-                "wind": f"{obs.wind_dir.value()}° a {obs.wind_speed.value()} nodi" if obs.wind_speed else "Calma / N/D",
-                "visibility": f"{obs.vis.value()} {obs.vis.unit}" if obs.vis else "N/D",
-                "press": f"{obs.press.value()} hPa" if obs.press else "N/D",
-                "sky": ", ".join([f"{c[0]} a {c[1].value()}ft" if c[1] else c[0] for c in obs.sky]) if obs.sky else "Sereno"
-            }
+            try:
+                metar_parser = importlib.import_module("metar").Metar
+                obs = metar_parser.Metar(raw_m)
+                result["metar_decoded"] = {
+                    "time": obs.time.strftime("%d/%m/%Y %H:%M UTC") if obs.time else "N/D",
+                    "temperature": f"{obs.temp.value()} °C" if obs.temp else "N/D",
+                    "dewpoint": f"{obs.dewpt.value()} °C" if obs.dewpt else "N/D",
+                    "wind": f"{obs.wind_dir.value()}° a {obs.wind_speed.value()} nodi" if obs.wind_speed else "Calma / N/D",
+                    "visibility": f"{obs.vis.value()} {obs.vis.unit}" if obs.vis else "N/D",
+                    "press": f"{obs.press.value()} hPa" if obs.press else "N/D",
+                    "sky": ", ".join([f"{c[0]} a {c[1].value()}ft" if c[1] else c[0] for c in obs.sky]) if obs.sky else "Sereno"
+                }
+            except ImportError:
+                result["metar_decoded"] = {"info": "Decodifica METAR non disponibile: installare il pacchetto metar."}
 
         res_t = requests.get(f"https://aviationweather.gov/api/data/taf?ids={icao_code}&format=raw", timeout=5)
         if res_t.status_code == 200 and res_t.text.strip():
@@ -280,16 +286,82 @@ with col_left:
         st.code(data_lirf["taf_raw"], language="text")
         
         with st.expander("🔍 Decodifica TAF LIRF"):
-            t_dec = data_lirf.get("taf_decoded", {})
-            if data_lirf["is_checkwx"] and "forecast" in t_dec:
-                st.write(f"- **Emesso il:** {t_dec.get('timestamp', 'N/D')}")
-                for f in t_dec.get("forecast", []):
-                    time_from = f.get('from', {}).get('repr', 'N/D')
-                    time_to = f.get('to', {}).get('repr', 'N/D')
-                    wind_f = f.get('wind', {})
-                    st.markdown(f"• *Da {time_from} a {time_to}:* Vento {wind_f.get('degrees', 'N/D')}° / {wind_f.get('speed_kts', 'N/D')} kts")
-            else:
-                st.info("Decodifica dettagliata disponibile con CheckWX API Key.")
+#            t_dec = data_lirf.get("taf_decoded", {})
+#            if data_lirf["is_checkwx"] and "forecast" in t_dec:
+#                st.write(f"- **Emesso il:** {t_dec.get('timestamp', 'N/D')}")
+#                for f in t_dec.get("forecast", []):
+#                    time_from = f.get('from', {}).get('repr', 'N/D')
+#                    time_to = f.get('to', {}).get('repr', 'N/D')
+#                    wind_f = f.get('wind', {})
+#                    st.markdown(f"• *Da {time_from} a {time_to}:* Vento {wind_f.get('degrees', 'N/D')}° / {wind_f.get('speed_kts', 'N/D')} kts")
+#            else:
+#                st.info("Decodifica dettagliata disponibile con CheckWX API Key.")
+    # 1. Scarica il TAF dall'API ufficiale
+            url = "https://aviationweather.gov/api/data/taf?ids=LIRF"
+
+            try:
+                with urllib.request.urlopen(url) as response:
+                    taf_raw = response.read().decode('utf-8').strip()
+            except Exception as e:
+                print(f"Errore di connessione: {e}")
+                taf_raw = ""
+
+            if taf_raw:
+                print(f"=== TAF GREZZO SCARICATO ===\n{taf_raw}\n")
+                print("=== DECODIFICA PASSO DOPO PASSO ===")
+    
+                parts = taf_raw.split()
+    
+                # 1. Identificatore del tipo
+                taf_type = parts[0]
+                print(f"1. Tipo bollettino: {taf_type} ({'Modificato/AMD' if 'AMD' in taf_type else 'Standard'})")
+    
+                # 2. Stazione ICAO
+                station = parts[1]
+                print(f"2. Stazione ICAO: {station} (Aeroporto di Roma Fiumicino)")
+    
+                # 3. Data/Ora di emissione
+                issue_time = parts[2]
+                day = issue_time[:2]
+                hour = issue_time[2:4]
+                minute = issue_time[4:6]
+                print(f"3. Emissione: Giorno {day} alle ore {hour}:{minute} UTC")
+    
+                # 4. Validità
+                validity = parts[3]
+                print(f"4. Periodo di validità: {validity}")
+    
+                # 5. Vento (cerchiamo il blocco con KT o MPS)
+                wind = next((p for p in parts if 'KT' in p or 'MPS' in p), "Non trovato")
+                print(f"5. Vento principale: {wind}")
+    
+                # 6. Visibilità (cifre esatte o CAVOK)
+                visib = next((p for p in parts if p.isdigit() and len(p) == 4 or p == 'CAVOK'), "Non trovata")
+                print(f"6. Visibilità: {visib}")
+    
+                # 7 & 8. Nubi e Fenomeni (Analizziamo i gruppi principali)
+                print("7-8. Condizioni meteorologiche e Nubi principali:")
+                for p in parts:
+                    if any(cloud in p for cloud in ['FEW', 'SCT', 'BKN', 'OVC', 'NSC', 'SKC', 'CAVOK']):
+                        print(f"   - Nubi: {p}")
+            
+                # 9. Indicatori di variazione (TEMPO, BECMG, PROB)
+                print("9. Indicatori di variazione e trend:")
+                # Ricostruiamo dividendo per i gruppi di cambiamento
+                current_trend = []
+                trends_list = []
+                for p in parts[4:]:
+                    if p in ['TEMPO', 'BECMG', 'PROB30', 'PROB40', 'FM']:
+                        if current_trend:
+                            trends_list.append(" ".join(current_trend))
+                            current_trend = []
+                    current_trend.append(p)
+                if current_trend:
+                    trends_list.append(" ".join(current_trend))
+        
+                for t in trends_list[1:]: # Esclude il primo blocco che è il meteo base
+                    print(f"   -> {t}")
+
 
 # --- Riquadro Destro: LIRU (Roma Urbe) ---
 with col_right:
