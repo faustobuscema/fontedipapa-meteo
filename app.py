@@ -34,6 +34,18 @@ st.markdown("""
         margin-bottom: 15px;
         font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     }
+    div[data-testid="stCode"] pre,
+    div[data-testid="stExpander"] details {
+        background: linear-gradient(135deg, #56b4f8, #86d0f9);
+        color: #ffffff;
+        border-radius: 12px;
+    }
+    div[data-testid="stCode"] pre code,
+    div[data-testid="stExpander"] details,
+    div[data-testid="stExpander"] details summary,
+    div[data-testid="stExpander"] [data-testid="stMarkdownContainer"] {
+        color: #ffffff;
+    }
     .stMetric {
         background-color: transparent !important;
         padding: 0px;
