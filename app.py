@@ -349,7 +349,7 @@ st.divider()
 # ---------------------------------------------------------
 # Sezione Inferiore: Previsioni ed Estese Open-Meteo
 # ---------------------------------------------------------
-st.subheader("📊 Previsioni Dettagliate & Ensemble")
+st.subheader("📊 Previsioni Dettagliate & Ensemble con modello Google Weathernext2")
 st.markdown(
     "Previsioni fornite da [Open-Meteo.com](https://open-meteo.com/), "
     "con presentazione adattata. "
