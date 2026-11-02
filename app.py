@@ -21,8 +21,15 @@ st.set_page_config(
 # --- Stile CSS Globale e Responsive per Mobile ---
 st.markdown("""
     <style>
-    .main {
-        background-color: #0e1117;
+    .stApp {
+        background: linear-gradient(145deg, #fff8ee 0%, #fff1e8 58%, #eef7ff 100%);
+    }
+    [data-testid="stAppViewContainer"],
+    [data-testid="stMain"] {
+        background: transparent;
+    }
+    [data-testid="stHeader"] {
+        background: rgba(255, 248, 238, 0.75);
     }
     /* Sfondo azzurro chiaro sfumato per tutte le card */
     .aero-card {
