@@ -7,9 +7,7 @@ from retry_requests import retry
 from datetime import datetime
 import os
 import base64
-import importlib
-import urllib.request
-import re
+from decode_taf import decode_metar, decode_taf
 
 # ---------------------------------------------------------
 # Configurazione Pagina Streamlit
@@ -105,15 +103,33 @@ st.divider()
 # ---------------------------------------------------------
 # Funzione per recuperare METAR e TAF
 # ---------------------------------------------------------
+TAF_NOT_AVAILABLE = "TAF non disponibile o non emesso per questa stazione"
+
+
+def decode_aeronautical_reports(result):
+    if result["metar_raw"] != "N/D":
+        try:
+            result["metar_decoded"] = decode_metar(result["metar_raw"])
+        except ValueError as error:
+            result["metar_decoded"] = {"error": str(error)}
+
+    if result["taf_raw"] != TAF_NOT_AVAILABLE:
+        try:
+            result["taf_decoded"] = decode_taf(result["taf_raw"])
+        except ValueError as error:
+            result["taf_decoded"] = {"error": str(error)}
+
+    return result
+
+
 @st.cache_data(ttl=600)
 def get_weather_aero_data(icao_code):
     checkwx_key = st.secrets.get("CHECKWX_API_KEY", "")
     result = {
-        "metar_raw": "N/D", 
-        "taf_raw": "TAF non disponibile o non emesso per questa stazione", 
-        "metar_decoded": {}, 
-        "taf_decoded": {}, 
-        "is_checkwx": False
+        "metar_raw": "N/D",
+        "taf_raw": TAF_NOT_AVAILABLE,
+        "metar_decoded": {},
+        "taf_decoded": {},
     }
     
     if checkwx_key and checkwx_key != "la_tua_api_key_checkwx_qui":
@@ -125,7 +141,6 @@ def get_weather_aero_data(icao_code):
                 if "data" in data_m and len(data_m["data"]) > 0:
                     result["metar_decoded"] = data_m["data"][0]
                     result["metar_raw"] = data_m["data"][0].get("raw_text", "N/D")
-                    result["is_checkwx"] = True
 
             res_t = requests.get(f"https://api.checkwx.com/taf/{icao_code}/decoded", headers=headers, timeout=5)
             if res_t.status_code == 200:
@@ -133,38 +148,56 @@ def get_weather_aero_data(icao_code):
                 if "data" in data_t and len(data_t["data"]) > 0:
                     result["taf_decoded"] = data_t["data"][0]
                     result["taf_raw"] = data_t["data"][0].get("raw_text", "TAF non disponibile o non emesso per questa stazione")
-            return result
+            return decode_aeronautical_reports(result)
         except Exception:
             pass
 
     try:
         res_m = requests.get(f"https://aviationweather.gov/api/data/metar?ids={icao_code}&format=raw", timeout=5)
         if res_m.status_code == 200 and res_m.text.strip():
-            raw_m = res_m.text.strip()
-            result["metar_raw"] = raw_m
-            try:
-                metar_parser = importlib.import_module("metar").Metar
-                obs = metar_parser.Metar(raw_m)
-                result["metar_decoded"] = {
-                    "time": obs.time.strftime("%d/%m/%Y %H:%M UTC") if obs.time else "N/D",
-                    "temperature": f"{obs.temp.value()} °C" if obs.temp else "N/D",
-                    "dewpoint": f"{obs.dewpt.value()} °C" if obs.dewpt else "N/D",
-                    "wind": f"{obs.wind_dir.value()}° a {obs.wind_speed.value()} nodi" if obs.wind_speed else "Calma / N/D",
-                    "visibility": f"{obs.vis.value()} {obs.vis.unit}" if obs.vis else "N/D",
-                    "press": f"{obs.press.value()} hPa" if obs.press else "N/D",
-                    "sky": ", ".join([f"{c[0]} a {c[1].value()}ft" if c[1] else c[0] for c in obs.sky]) if obs.sky else "Sereno"
-                }
-            except ImportError:
-                result["metar_decoded"] = {"info": "Decodifica METAR non disponibile: installare il pacchetto metar."}
+            result["metar_raw"] = res_m.text.strip()
 
         res_t = requests.get(f"https://aviationweather.gov/api/data/taf?ids={icao_code}&format=raw", timeout=5)
         if res_t.status_code == 200 and res_t.text.strip():
             result["taf_raw"] = res_t.text.strip()
-            result["taf_decoded"] = {"info": "Decodifica testuale disponibile tramite CheckWX API Key"}
 
-        return result
+        return decode_aeronautical_reports(result)
     except Exception as e:
         return {"error": f"Impossibile recuperare i dati per {icao_code}: {str(e)}"}
+
+
+def display_decoded_metar(decoded):
+    if decoded.get("error"):
+        st.warning(f"Decodifica METAR non disponibile: {decoded['error']}")
+        return
+    st.write(f"- **Ora:** {decoded.get('time', 'N/D')}")
+    st.write(f"- **Temperatura:** {decoded.get('temperature', 'N/D')}")
+    st.write(f"- **Punto di rugiada:** {decoded.get('dewpoint', 'N/D')}")
+    st.write(f"- **Vento:** {decoded.get('wind', 'N/D')}")
+    st.write(f"- **Pressione:** {decoded.get('press', 'N/D')}")
+    st.write(f"- **Visibilità:** {decoded.get('visibility', 'N/D')}")
+    st.write(f"- **Nubi:** {decoded.get('sky', 'N/D')}")
+    st.write(f"- **Fenomeni:** {decoded.get('weather', 'N/D')}")
+
+
+def display_decoded_taf(decoded):
+    if decoded.get("error"):
+        st.warning(f"Decodifica TAF non disponibile: {decoded['error']}")
+        return
+    if not decoded:
+        st.info("TAF non disponibile per questa stazione.")
+        return
+
+    st.write(f"- **Tipo:** {decoded.get('type', 'TAF')}")
+    st.write(f"- **Stazione:** {decoded.get('station', 'N/D')}")
+    st.write(f"- **Emesso:** {decoded.get('issued', 'N/D')}")
+    st.write(f"- **Validità:** {decoded.get('validity', 'N/D')}")
+    for period in decoded.get("forecast", []):
+        st.markdown(f"**{period['change']} — {period['period']}**")
+        st.write(f"- Vento: {period['wind']}")
+        st.write(f"- Visibilità: {period['visibility']}")
+        st.write(f"- Fenomeni: {period['weather']}")
+        st.write(f"- Nubi: {period['clouds']}")
 
 
 # ---------------------------------------------------------
@@ -266,101 +299,13 @@ with col_left:
         st.code(data_lirf["metar_raw"], language="text")
         
         with st.expander("🔍 Decodifica METAR LIRF"):
-            m_dec = data_lirf["metar_decoded"]
-            if data_lirf["is_checkwx"]:
-                st.write(f"- **Ora:** {m_dec.get('observed', 'N/D')}")
-                st.write(f"- **Temperatura:** {m_dec.get('temperature', {}).get('celsius', 'N/D')} °C")
-                st.write(f"- **Vento:** {m_dec.get('wind', {}).get('degrees', 'N/D')}° / {m_dec.get('wind', {}).get('speed_kts', 'N/D')} kts")
-                st.write(f"- **QNH:** {m_dec.get('barometer', {}).get('hpa', 'N/D')} hPa")
-                st.write(f"- **Visibilità:** {m_dec.get('visibility', {}).get('meters', 'N/D')} m")
-            else:
-                st.write(f"- **Ora:** {m_dec.get('time')}")
-                st.write(f"- **Temperatura:** {m_dec.get('temperature')}")
-                st.write(f"- **Punto di rugiada:** {m_dec.get('dewpoint')}")
-                st.write(f"- **Vento:** {m_dec.get('wind')}")
-                st.write(f"- **Pressione:** {m_dec.get('press')}")
-                st.write(f"- **Visibilità:** {m_dec.get('visibility')}")
-                st.write(f"- **Nubi:** {m_dec.get('sky')}")
+            display_decoded_metar(data_lirf["metar_decoded"])
 
         st.markdown("**TAF (Previsione)**")
         st.code(data_lirf["taf_raw"], language="text")
         
         with st.expander("🔍 Decodifica TAF LIRF"):
-#            t_dec = data_lirf.get("taf_decoded", {})
-#            if data_lirf["is_checkwx"] and "forecast" in t_dec:
-#                st.write(f"- **Emesso il:** {t_dec.get('timestamp', 'N/D')}")
-#                for f in t_dec.get("forecast", []):
-#                    time_from = f.get('from', {}).get('repr', 'N/D')
-#                    time_to = f.get('to', {}).get('repr', 'N/D')
-#                    wind_f = f.get('wind', {})
-#                    st.markdown(f"• *Da {time_from} a {time_to}:* Vento {wind_f.get('degrees', 'N/D')}° / {wind_f.get('speed_kts', 'N/D')} kts")
-#            else:
-#                st.info("Decodifica dettagliata disponibile con CheckWX API Key.")
-    # 1. Scarica il TAF dall'API ufficiale
-            url = "https://aviationweather.gov/api/data/taf?ids=LIRF"
-
-            try:
-                with urllib.request.urlopen(url) as response:
-                    taf_raw = response.read().decode('utf-8').strip()
-            except Exception as e:
-                print(f"Errore di connessione: {e}")
-                taf_raw = ""
-
-            if taf_raw:
-                print(f"=== TAF GREZZO SCARICATO ===\n{taf_raw}\n")
-                print("=== DECODIFICA PASSO DOPO PASSO ===")
-    
-                parts = taf_raw.split()
-    
-                # 1. Identificatore del tipo
-                taf_type = parts[0]
-                print(f"1. Tipo bollettino: {taf_type} ({'Modificato/AMD' if 'AMD' in taf_type else 'Standard'})")
-    
-                # 2. Stazione ICAO
-                station = parts[1]
-                print(f"2. Stazione ICAO: {station} (Aeroporto di Roma Fiumicino)")
-    
-                # 3. Data/Ora di emissione
-                issue_time = parts[2]
-                day = issue_time[:2]
-                hour = issue_time[2:4]
-                minute = issue_time[4:6]
-                print(f"3. Emissione: Giorno {day} alle ore {hour}:{minute} UTC")
-    
-                # 4. Validità
-                validity = parts[3]
-                print(f"4. Periodo di validità: {validity}")
-    
-                # 5. Vento (cerchiamo il blocco con KT o MPS)
-                wind = next((p for p in parts if 'KT' in p or 'MPS' in p), "Non trovato")
-                print(f"5. Vento principale: {wind}")
-    
-                # 6. Visibilità (cifre esatte o CAVOK)
-                visib = next((p for p in parts if p.isdigit() and len(p) == 4 or p == 'CAVOK'), "Non trovata")
-                print(f"6. Visibilità: {visib}")
-    
-                # 7 & 8. Nubi e Fenomeni (Analizziamo i gruppi principali)
-                print("7-8. Condizioni meteorologiche e Nubi principali:")
-                for p in parts:
-                    if any(cloud in p for cloud in ['FEW', 'SCT', 'BKN', 'OVC', 'NSC', 'SKC', 'CAVOK']):
-                        print(f"   - Nubi: {p}")
-            
-                # 9. Indicatori di variazione (TEMPO, BECMG, PROB)
-                print("9. Indicatori di variazione e trend:")
-                # Ricostruiamo dividendo per i gruppi di cambiamento
-                current_trend = []
-                trends_list = []
-                for p in parts[4:]:
-                    if p in ['TEMPO', 'BECMG', 'PROB30', 'PROB40', 'FM']:
-                        if current_trend:
-                            trends_list.append(" ".join(current_trend))
-                            current_trend = []
-                    current_trend.append(p)
-                if current_trend:
-                    trends_list.append(" ".join(current_trend))
-        
-                for t in trends_list[1:]: # Esclude il primo blocco che è il meteo base
-                    print(f"   -> {t}")
+            display_decoded_taf(data_lirf["taf_decoded"])
 
 
 # --- Riquadro Destro: LIRU (Roma Urbe) ---
@@ -379,36 +324,13 @@ with col_right:
         st.code(data_liru["metar_raw"], language="text")
         
         with st.expander("🔍 Decodifica METAR LIRU"):
-            m_dec_u = data_liru["metar_decoded"]
-            if data_liru["is_checkwx"]:
-                st.write(f"- **Ora:** {m_dec_u.get('observed', 'N/D')}")
-                st.write(f"- **Temperatura:** {m_dec_u.get('temperature', {}).get('celsius', 'N/D')} °C")
-                st.write(f"- **Vento:** {m_dec_u.get('wind', {}).get('degrees', 'N/D')}° / {m_dec_u.get('wind', {}).get('speed_kts', 'N/D')} kts")
-                st.write(f"- **QNH:** {m_dec_u.get('barometer', {}).get('hpa', 'N/D')} hPa")
-                st.write(f"- **Visibilità:** {m_dec_u.get('visibility', {}).get('meters', 'N/D')} m")
-            else:
-                st.write(f"- **Ora:** {m_dec_u.get('time')}")
-                st.write(f"- **Temperatura:** {m_dec_u.get('temperature')}")
-                st.write(f"- **Punto di rugiada:** {m_dec_u.get('dewpoint')}")
-                st.write(f"- **Vento:** {m_dec_u.get('wind')}")
-                st.write(f"- **Pressione:** {m_dec_u.get('press')}")
-                st.write(f"- **Visibilità:** {m_dec_u.get('visibility')}")
-                st.write(f"- **Nubi:** {m_dec_u.get('sky')}")
+            display_decoded_metar(data_liru["metar_decoded"])
 
         st.markdown("**TAF (Previsione)**")
         st.code(data_liru["taf_raw"], language="text")
         
         with st.expander("🔍 Decodifica TAF LIRU"):
-            t_dec_u = data_liru.get("taf_decoded", {})
-            if data_liru["is_checkwx"] and "forecast" in t_dec_u:
-                st.write(f"- **Emesso il:** {t_dec_u.get('timestamp', 'N/D')}")
-                for f in t_dec_u.get("forecast", []):
-                    time_from = f.get('from', {}).get('repr', 'N/D')
-                    time_to = f.get('to', {}).get('repr', 'N/D')
-                    wind_f = f.get('wind', {})
-                    st.markdown(f"• *Da {time_from} a {time_to}:* Vento {wind_f.get('degrees', 'N/D')}° / {wind_f.get('speed_kts', 'N/D')} kts")
-            else:
-                st.info("Decodifica dettagliata disponibile con CheckWX API Key.")
+            display_decoded_taf(data_liru["taf_decoded"])
 
 st.divider()
 

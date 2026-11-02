@@ -3,7 +3,7 @@
 Applicazione meteo sviluppata con **Streamlit** che mostra osservazioni locali e dati aeronautici in tempo reale.
 
 ## 🚀 Funzionalità
-- **METAR e TAF per LIRF** (Roma Fiumicino) e **LIRU** (Roma Urbe) con decodifica automatica in italiano.
+- **METAR e TAF per LIRF** (Roma Fiumicino) e **LIRU** (Roma Urbe), con decodifica in italiano di vento, visibilità, fenomeni, nubi e gruppi di variazione del TAF.
 - **Osservazione attuale** per la posizione (Lat: 42.05667, Lon: 12.57507) recuperata da Open-Meteo API.
 - **Previsioni Ensemble** basate sul modello `google_weathernext2_ensemble` di Open-Meteo.
 
