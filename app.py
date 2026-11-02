@@ -279,6 +279,11 @@ with col_center:
         """
         st.markdown(card_html, unsafe_allow_html=True)
         st.caption(f"🕒 Rilevato il: {current_dt.strftime('%d/%m/%Y %H:%M')}")
+        st.markdown(
+            "Dati meteo forniti da [Open-Meteo.com](https://open-meteo.com/), "
+            "con presentazione adattata. "
+            "[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)."
+        )
 
     except Exception as e:
         st.error(f"Errore nel recupero dati Open-Meteo attuali: {e}")
@@ -338,6 +343,11 @@ st.divider()
 # Sezione Inferiore: Previsioni ed Estese Open-Meteo
 # ---------------------------------------------------------
 st.subheader("📊 Previsioni Dettagliate & Ensemble")
+st.markdown(
+    "Previsioni fornite da [Open-Meteo.com](https://open-meteo.com/), "
+    "con presentazione adattata. "
+    "[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)."
+)
 
 @st.cache_data(ttl=1800)
 def fetch_extended_forecast():
